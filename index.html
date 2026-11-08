@@ -2,7 +2,7 @@
 <style>
 body{font-family:system-ui,"Noto Sans TC";background:#071522;color:white;margin:0}.wrap{max-width:1100px;margin:auto;padding:18px}.card{background:#10263a;border:1px solid #31516a;border-radius:16px;padding:18px;margin:12px 0}.hide{display:none}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.row{display:flex;gap:8px;flex-wrap:wrap}button,input,select{padding:11px;border-radius:9px;border:1px solid #52718a;background:#16344c;color:white;font-size:16px}button{cursor:pointer}.go{background:#08785c}.gold{background:#756019}.code{text-align:center;font-size:44px;color:#ffd35a;font-weight:bold;letter-spacing:7px}.team{padding:13px;border:1px solid #31516a;border-radius:12px}.active{outline:3px solid #16b98c}.score{font-size:30px;color:#ffd35a;font-weight:bold}.probgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.probbox{border:1px solid #31516a;border-radius:12px;padding:12px}.probbox label{display:flex;justify-content:space-between;align-items:center;margin:6px 0}.probbox input{width:70px;padding:7px}.probSum{font-weight:bold;margin-top:8px}.event{min-height:190px;display:flex;align-items:center;justify-content:center;text-align:center;border:1px dashed #52718a;border-radius:14px}.big{font-size:60px}.log{max-height:250px;overflow:auto}.rank{padding:9px;border-bottom:1px solid #31516a;font-size:20px}@media(max-width:800px){.probgrid{grid-template-columns:1fr}.grid{grid-template-columns:1fr 1fr}}@media(max-width:480px){.grid{grid-template-columns:1fr}}
 </style></head><body><div class="wrap">
-<section id="home" class="card"><h1>🎣 金融捕魚｜Google 教師白名單驗證｜免費方案權限隔離測試版</h1><p id="status">🔄 連線中…</p><div class="row"><button class="go" onclick="teacherSetup()" disabled id="teacherEntry">👨‍🏫 教師版</button><button onclick="studentSetup()" disabled id="studentEntry">📱 學生版</button></div></section>
+<section id="home" class="card"><h1>🎣 金融捕魚｜Spark 免費安全測試版 v2</h1><p id="status">🔄 連線中…</p><div class="row"><button class="go" onclick="teacherSetup()" disabled id="teacherEntry">👨‍🏫 教師版</button><button onclick="studentSetup()" disabled id="studentEntry">📱 學生版</button></div></section>
 <section id="setupT" class="card hide"><h2>建立課堂</h2><div id="names" class="grid"></div><br><button class="go" onclick="createRoom()">🚀 建立課堂</button></section>
 <section id="setupS" class="card hide"><h2>加入課堂</h2><div class="row"><input id="code" maxlength="4" placeholder="4碼課堂代碼"><select id="myTeam"></select><button class="go" onclick="joinRoom()">加入</button></div></section>
 <section id="teacher" class="hide"><div class="card"><div>課堂代碼</div><div id="roomCode" class="code"></div><button onclick="copyCode()">📋 複製代碼</button> <button onclick="copyLink()">🔗 複製學生網址</button></div>
@@ -16,7 +16,7 @@ import{initializeApp}from"https://www.gstatic.com/firebasejs/12.1.0/firebase-app
 import{getDatabase,ref,set,get,update,runTransaction,onValue,onChildAdded,remove,push,serverTimestamp}from"https://www.gstatic.com/firebasejs/12.1.0/firebase-database.js";
 import{getAuth,signInAnonymously,onAuthStateChanged,GoogleAuthProvider,signInWithPopup}from"https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
  const firebaseConfig={   apiKey:"AIzaSyA2E7ycb9kKivVROP_Db1ObvYKJGlxQPKc",   authDomain:"finance-fishing-security-test.firebaseapp.com",   databaseURL:"https://finance-fishing-security-test-default-rtdb.asia-southeast1.firebasedatabase.app",   projectId:"finance-fishing-security-test",   storageBucket:"finance-fishing-security-test.firebasestorage.app",   messagingSenderId:"502847440765",   appId:"1:502847440765:web:4e380f34250c0c269bae14" };
-const app=initializeApp(firebaseConfig);const db=getDatabase(app);const auth=getAuth(app);let room="",role="",me=-1,s=null;let queueUnsub=null;const $=x=>document.getElementById(x);
+const app=initializeApp(firebaseConfig);const db=getDatabase(app);const auth=getAuth(app);let room="",role="",me=-1,s=null;let queueUnsub=null,memberUnsub=null;const $=x=>document.getElementById(x);
 const seas={pacific:["太平洋"],atlantic:["大西洋"],indian:["印度洋"]};
 // 階段一：教師登入時查詢 /teachers/{uid} 白名單；資料庫規則尚須後續收緊。
 let authReady=false;
@@ -52,7 +52,7 @@ window.teacherSetup=async()=>{try{await ensureTeacherAuth()}catch(error){showAut
 window.studentSetup=async()=>{try{await ensureStudentAuth()}catch(error){showAuthError(error);return;}hide();$("setupS").classList.remove("hide");$("myTeam").innerHTML=[0,1,2,3,4,5].map(i=>`<option value="${i}">第${i+1}組</option>`).join("")};
 function blank(){let t={};for(let i=0;i<6;i++)t[i]={name:`第${i+1}組`,fish:0,capacity:10,attempts:0,tech:0,expert:0,expertUses:0,expertReport:null,ship:0,connected:false,carry:0,roundFish:0,lastRoundFish:0};return{code:room,teacherUid:auth.currentUser.uid,phase:"setup",round:0,turn:0,paused:true,prob:JSON.parse(JSON.stringify(defaultProb)),teams:t,last:null}}
 function listen(){onValue(ref(db,"rooms/"+room),v=>{if(v.exists()){s=v.val();render()}},error=>{console.error(error);alert("資料庫讀取失敗："+error.message)})}
-window.createRoom=async()=>{if(!await isApprovedTeacher())return alert("教師帳號未通過白名單驗證");room=Math.random().toString(36).slice(2,6).toUpperCase();let x=blank();for(let i=0;i<6;i++)x.teams[i].name=$("n"+i).value.trim()||`第${i+1}組`;await set(ref(db,"rooms/"+room),x);role="teacher";hide();$("teacher").classList.remove("hide");listen();startTeacherQueue()};
+window.createRoom=async()=>{if(!await isApprovedTeacher())return alert("教師帳號未通過白名單驗證");room=Math.random().toString(36).slice(2,6).toUpperCase();let x=blank();for(let i=0;i<6;i++)x.teams[i].name=$("n"+i).value.trim()||`第${i+1}組`;await set(ref(db,"rooms/"+room),x);role="teacher";hide();$("teacher").classList.remove("hide");listen();startTeacherQueue();startMemberWatch()};
 window.joinRoom=async()=>{
  let stage="登入驗證";
  try{
@@ -123,11 +123,29 @@ let outcome=null;
  if(!result.committed)return;
  if(outcome){const o=outcome;await log(o.action==="skip"?`⏭️ ${o.team} 跳過回合`:o.pirate?`🏴‍☠️ ${o.team} 遭海盜掠奪`: `🎣 ${o.team} 抽到 ${o.n} 條魚`);}
 }
+let requestPending=false;
 async function submitAction(type,extra={}){
+ if(requestPending)return alert("上一個操作正在送出，請稍候");
  if(!auth.currentUser||auth.currentUser.isAnonymous===false)return alert("請使用學生匿名帳號");
  const req=push(ref(db,`requests/${room}/${auth.currentUser.uid}`));
+ requestPending=true;
  try{await set(req,{type,team:me,...extra,createdAt:Date.now()});}
  catch(e){alert("操作送出失敗："+e.message)}
+ finally{requestPending=false}
+}
+function startMemberWatch(){
+ if(memberUnsub)memberUnsub();
+ memberUnsub=onValue(ref(db,`members/${room}`),async snap=>{
+  if(role!=="teacher"||!s||!snap.exists())return;
+  const claims=snap.val();
+  for(const [index,uid] of Object.entries(claims)){
+   if(!/^[0-5]$/.test(index)||typeof uid!=="string")continue;
+   if(!s.teams?.[index]?.connected){
+    try{await update(ref(db,`rooms/${room}/teams/${index}`),{connected:true})}
+    catch(e){console.error("更新連線狀態失敗",e)}
+   }
+  }
+ });
 }
 function startTeacherQueue(){
  if(queueUnsub)queueUnsub();
@@ -140,6 +158,7 @@ function startTeacherQueue(){
    childUnsubs[uid]=onChildAdded(ref(db,`requests/${room}/${uid}`),async shot=>{
     const req=shot.val();const path=ref(db,`requests/${room}/${uid}/${shot.key}`);
     try{
+     if(!req||!Number.isInteger(Number(req.team))||Number(req.team)<0||Number(req.team)>5)return;
      const member=await get(ref(db,`members/${room}/${req.team}`));
      if(member.val()!==uid)return;
      if(req.type==="fish"||req.type==="skip")await takeTurn(req.type,Number(req.team),req.sea,shot.key);
