@@ -2,7 +2,7 @@
 <style>
 body{font-family:system-ui,"Noto Sans TC";background:#071522;color:white;margin:0}.wrap{max-width:1100px;margin:auto;padding:18px}.card{background:#10263a;border:1px solid #31516a;border-radius:16px;padding:18px;margin:12px 0}.hide{display:none}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.row{display:flex;gap:8px;flex-wrap:wrap}button,input,select{padding:11px;border-radius:9px;border:1px solid #52718a;background:#16344c;color:white;font-size:16px}button{cursor:pointer}.go{background:#08785c}.gold{background:#756019}.code{text-align:center;font-size:44px;color:#ffd35a;font-weight:bold;letter-spacing:7px}.team{padding:13px;border:1px solid #31516a;border-radius:12px}.active{outline:3px solid #16b98c}.score{font-size:30px;color:#ffd35a;font-weight:bold}.probgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.probbox{border:1px solid #31516a;border-radius:12px;padding:12px}.probbox label{display:flex;justify-content:space-between;align-items:center;margin:6px 0}.probbox input{width:70px;padding:7px}.probSum{font-weight:bold;margin-top:8px}.event{min-height:190px;display:flex;align-items:center;justify-content:center;text-align:center;border:1px dashed #52718a;border-radius:14px}.big{font-size:60px}.log{max-height:250px;overflow:auto}.rank{padding:9px;border-bottom:1px solid #31516a;font-size:20px}@media(max-width:800px){.probgrid{grid-template-columns:1fr}.grid{grid-template-columns:1fr 1fr}}@media(max-width:480px){.grid{grid-template-columns:1fr}}
 </style></head><body><div class="wrap">
-<section id="home" class="card"><h1>🎣 金融捕魚｜Google 教師登入安全測試版</h1><p id="status">🔄 連線中…</p><div class="row"><button class="go" onclick="teacherSetup()" disabled id="teacherEntry">👨‍🏫 教師版</button><button onclick="studentSetup()" disabled id="studentEntry">📱 學生版</button></div></section>
+<section id="home" class="card"><h1>🎣 金融捕魚｜Google 教師白名單驗證測試版</h1><p id="status">🔄 連線中…</p><div class="row"><button class="go" onclick="teacherSetup()" disabled id="teacherEntry">👨‍🏫 教師版</button><button onclick="studentSetup()" disabled id="studentEntry">📱 學生版</button></div></section>
 <section id="setupT" class="card hide"><h2>建立課堂</h2><div id="names" class="grid"></div><br><button class="go" onclick="createRoom()">🚀 建立課堂</button></section>
 <section id="setupS" class="card hide"><h2>加入課堂</h2><div class="row"><input id="code" maxlength="4" placeholder="4碼課堂代碼"><select id="myTeam"></select><button class="go" onclick="joinRoom()">加入</button></div></section>
 <section id="teacher" class="hide"><div class="card"><div>課堂代碼</div><div id="roomCode" class="code"></div><button onclick="copyCode()">📋 複製代碼</button> <button onclick="copyLink()">🔗 複製學生網址</button></div>
@@ -18,11 +18,16 @@ import{getAuth,signInAnonymously,onAuthStateChanged,GoogleAuthProvider,signInWit
  const firebaseConfig={   apiKey:"AIzaSyA2E7ycb9kKivVROP_Db1ObvYKJGlxQPKc",   authDomain:"finance-fishing-security-test.firebaseapp.com",   databaseURL:"https://finance-fishing-security-test-default-rtdb.asia-southeast1.firebasedatabase.app",   projectId:"finance-fishing-security-test",   storageBucket:"finance-fishing-security-test.firebasestorage.app",   messagingSenderId:"502847440765",   appId:"1:502847440765:web:4e380f34250c0c269bae14" };
 const app=initializeApp(firebaseConfig);const db=getDatabase(app);const auth=getAuth(app);let room="",role="",me=-1,s=null;const $=x=>document.getElementById(x);
 const seas={pacific:["太平洋"],atlantic:["大西洋"],indian:["印度洋"]};
-// 教師使用 Google 登入；學生使用匿名登入。資料庫授權仍需另行設定。
+// 階段一：教師登入時查詢 /teachers/{uid} 白名單；資料庫規則尚須後續收緊。
 let authReady=false;
 const googleProvider=new GoogleAuthProvider();
 function authStatus(message){$("status").textContent=message;}
 function isGoogleTeacher(){return !!auth.currentUser && !auth.currentUser.isAnonymous && auth.currentUser.providerData.some(p=>p.providerId==="google.com");}
+async function isApprovedTeacher(){
+ if(!isGoogleTeacher())return false;
+ const snapshot=await get(ref(db,"teachers/"+auth.currentUser.uid));
+ return snapshot.val()===true;
+}
 onAuthStateChanged(auth,user=>{
  authReady=!!user;
  $("teacherEntry").disabled=false;
@@ -36,6 +41,7 @@ async function ensureStudentAuth(){
 async function ensureTeacherAuth(){
  if(!isGoogleTeacher())await signInWithPopup(auth,googleProvider);
  if(!isGoogleTeacher())throw new Error("請使用 Google 帳號登入教師版");
+ if(!await isApprovedTeacher())throw new Error("此 Google 帳號尚未加入教師白名單，無法使用教師版");
 }
 function showAuthError(error){console.error(error);alert("登入失敗："+(error.code||error.message)+"。若瀏覽器阻擋彈出視窗，請允許此網站開啟彈出視窗。");}
 const defaultProb={p1:{pacific:[10,20,25,20,15,10,0],atlantic:[10,25,30,20,10,5,0],indian:[15,15,20,20,15,15,0]},p2:{pacific:[8,12,18,22,18,14,8],atlantic:[10,20,25,20,12,8,5],indian:[15,12,15,18,16,14,10]}};
@@ -46,7 +52,7 @@ window.teacherSetup=async()=>{try{await ensureTeacherAuth()}catch(error){showAut
 window.studentSetup=async()=>{try{await ensureStudentAuth()}catch(error){showAuthError(error);return;}hide();$("setupS").classList.remove("hide");$("myTeam").innerHTML=[0,1,2,3,4,5].map(i=>`<option value="${i}">第${i+1}組</option>`).join("")};
 function blank(){let t={};for(let i=0;i<6;i++)t[i]={name:`第${i+1}組`,fish:0,capacity:10,attempts:0,tech:0,expert:0,expertUses:0,expertReport:null,ship:0,connected:false,carry:0,roundFish:0,lastRoundFish:0};return{code:room,phase:"setup",round:0,turn:0,paused:true,prob:JSON.parse(JSON.stringify(defaultProb)),teams:t,last:null}}
 function listen(){onValue(ref(db,"rooms/"+room),v=>{if(v.exists()){s=v.val();render()}},error=>{console.error(error);alert("資料庫讀取失敗："+error.message)})}
-window.createRoom=async()=>{if(!isGoogleTeacher())return alert("請先以 Google 帳號登入教師版");room=Math.random().toString(36).slice(2,6).toUpperCase();let x=blank();for(let i=0;i<6;i++)x.teams[i].name=$("n"+i).value.trim()||`第${i+1}組`;await set(ref(db,"rooms/"+room),x);role="teacher";hide();$("teacher").classList.remove("hide");listen()};
+window.createRoom=async()=>{if(!await isApprovedTeacher())return alert("教師帳號未通過白名單驗證");room=Math.random().toString(36).slice(2,6).toUpperCase();let x=blank();for(let i=0;i<6;i++)x.teams[i].name=$("n"+i).value.trim()||`第${i+1}組`;await set(ref(db,"rooms/"+room),x);role="teacher";hide();$("teacher").classList.remove("hide");listen()};
 window.joinRoom=async()=>{room=$("code").value.trim().toUpperCase();let v=await get(ref(db,"rooms/"+room));if(!v.exists())return alert("找不到課堂");me=+$("myTeam").value;await update(ref(db,`rooms/${room}/teams/${me}`),{connected:true});role="student";hide();$("student").classList.remove("hide");listen()};
 const reset=()=>{let t={};Object.keys(s.teams).forEach(i=>t[i]={...s.teams[i],attempts:0,carry:0,roundFish:0,lastRoundFish:0});return t};
 async function log(x){await push(ref(db,`rooms/${room}/log`),{text:x,time:serverTimestamp()})}
