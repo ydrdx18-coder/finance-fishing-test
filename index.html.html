@@ -1,0 +1,139 @@
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>金融捕魚 Firebase版</title>
+<style>
+body{font-family:system-ui,"Noto Sans TC";background:#071522;color:white;margin:0}.wrap{max-width:1100px;margin:auto;padding:18px}.card{background:#10263a;border:1px solid #31516a;border-radius:16px;padding:18px;margin:12px 0}.hide{display:none}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.row{display:flex;gap:8px;flex-wrap:wrap}button,input,select{padding:11px;border-radius:9px;border:1px solid #52718a;background:#16344c;color:white;font-size:16px}button{cursor:pointer}.go{background:#08785c}.gold{background:#756019}.code{text-align:center;font-size:44px;color:#ffd35a;font-weight:bold;letter-spacing:7px}.team{padding:13px;border:1px solid #31516a;border-radius:12px}.active{outline:3px solid #16b98c}.score{font-size:30px;color:#ffd35a;font-weight:bold}.probgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.probbox{border:1px solid #31516a;border-radius:12px;padding:12px}.probbox label{display:flex;justify-content:space-between;align-items:center;margin:6px 0}.probbox input{width:70px;padding:7px}.probSum{font-weight:bold;margin-top:8px}.event{min-height:190px;display:flex;align-items:center;justify-content:center;text-align:center;border:1px dashed #52718a;border-radius:14px}.big{font-size:60px}.log{max-height:250px;overflow:auto}.rank{padding:9px;border-bottom:1px solid #31516a;font-size:20px}@media(max-width:800px){.probgrid{grid-template-columns:1fr}.grid{grid-template-columns:1fr 1fr}}@media(max-width:480px){.grid{grid-template-columns:1fr}}
+</style></head><body><div class="wrap">
+<section id="home" class="card"><h1>🎣 金融捕魚｜Google 教師登入安全測試版</h1><p id="status">🔄 連線中…</p><div class="row"><button class="go" onclick="teacherSetup()" disabled id="teacherEntry">👨‍🏫 教師版</button><button onclick="studentSetup()" disabled id="studentEntry">📱 學生版</button></div></section>
+<section id="setupT" class="card hide"><h2>建立課堂</h2><div id="names" class="grid"></div><br><button class="go" onclick="createRoom()">🚀 建立課堂</button></section>
+<section id="setupS" class="card hide"><h2>加入課堂</h2><div class="row"><input id="code" maxlength="4" placeholder="4碼課堂代碼"><select id="myTeam"></select><button class="go" onclick="joinRoom()">加入</button></div></section>
+<section id="teacher" class="hide"><div class="card"><div>課堂代碼</div><div id="roomCode" class="code"></div><button onclick="copyCode()">📋 複製代碼</button> <button onclick="copyLink()">🔗 複製學生網址</button></div>
+<div class="card"><h2 id="phase"></h2><div class="row"><button class="go" onclick="startGame()">▶️ 開始第一階段</button><button onclick="setPause(true)">⏸️ 暫停</button><button onclick="setPause(false)">▶️ 繼續</button><button class="gold" onclick="nextStep()">➡️ 下一步</button></div></div>
+<div id="probSettings" class="card"></div><div class="card"><h2>🎬 最新事件</h2><div id="event" class="event"></div></div><div class="card"><h2>🏆 六組狀態</h2><div id="teams" class="grid"></div></div>
+<div id="skills" class="card hide"></div><div class="card"><h2>📜 紀錄</h2><div id="logs" class="log"></div></div><div id="final" class="card hide"></div></section>
+<section id="student" class="hide"><div class="card"><h2 id="studentName"></h2><div id="studentInfo"></div></div><div class="card"><h2>🎣 本回合操作</h2><div id="controls"></div></div><div class="card"><h2>🎬 我的結果</h2><div id="myEvent" class="event"></div></div></section>
+</div>
+<script type="module">
+import{initializeApp}from"https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
+import{getDatabase,ref,set,get,update,runTransaction,onValue,push,serverTimestamp}from"https://www.gstatic.com/firebasejs/12.1.0/firebase-database.js";
+import{getAuth,signInAnonymously,onAuthStateChanged,GoogleAuthProvider,signInWithPopup}from"https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
+ const firebaseConfig={   apiKey:"AIzaSyA2E7ycb9kKivVROP_Db1ObvYKJGlxQPKc",   authDomain:"finance-fishing-security-test.firebaseapp.com",   databaseURL:"https://finance-fishing-security-test-default-rtdb.asia-southeast1.firebasedatabase.app",   projectId:"finance-fishing-security-test",   storageBucket:"finance-fishing-security-test.firebasestorage.app",   messagingSenderId:"502847440765",   appId:"1:502847440765:web:4e380f34250c0c269bae14" };
+const app=initializeApp(firebaseConfig);const db=getDatabase(app);const auth=getAuth(app);let room="",role="",me=-1,s=null;const $=x=>document.getElementById(x);
+const seas={pacific:["太平洋"],atlantic:["大西洋"],indian:["印度洋"]};
+// 教師使用 Google 登入；學生使用匿名登入。資料庫授權仍需另行設定。
+let authReady=false;
+const googleProvider=new GoogleAuthProvider();
+function authStatus(message){$("status").textContent=message;}
+function isGoogleTeacher(){return !!auth.currentUser && !auth.currentUser.isAnonymous && auth.currentUser.providerData.some(p=>p.providerId==="google.com");}
+onAuthStateChanged(auth,user=>{
+ authReady=!!user;
+ $("teacherEntry").disabled=false;
+ $("studentEntry").disabled=false;
+ authStatus(user?(isGoogleTeacher()?"🟢 Google 帳號已登入（教師模式可使用）":"🟢 學生匿名驗證成功"):"🔐 教師請使用 Google 登入；學生可匿名加入");
+});
+async function ensureStudentAuth(){
+ if(isGoogleTeacher())throw new Error("目前是 Google 教師帳號，請使用另一個無痕視窗測試學生版");
+ if(!auth.currentUser)await signInAnonymously(auth);
+}
+async function ensureTeacherAuth(){
+ if(!isGoogleTeacher())await signInWithPopup(auth,googleProvider);
+ if(!isGoogleTeacher())throw new Error("請使用 Google 帳號登入教師版");
+}
+function showAuthError(error){console.error(error);alert("登入失敗："+(error.code||error.message)+"。若瀏覽器阻擋彈出視窗，請允許此網站開啟彈出視窗。");}
+const defaultProb={p1:{pacific:[10,20,25,20,15,10,0],atlantic:[10,25,30,20,10,5,0],indian:[15,15,20,20,15,15,0]},p2:{pacific:[8,12,18,22,18,14,8],atlantic:[10,20,25,20,12,8,5],indian:[15,12,15,18,16,14,10]}};
+function getProb(){return s&&s.prob?s.prob:defaultProb}
+const icons=["🫧","🐟","🐟🐟","🐟🐟🐟","🐠🐠🐠🐠","🐠🐠🐠🐠🐠","🐡🐡🐡🐡🐡🐡"];
+function hide(){["home","setupT","setupS","teacher","student"].forEach(x=>$(x).classList.add("hide"))}
+window.teacherSetup=async()=>{try{await ensureTeacherAuth()}catch(error){showAuthError(error);return;}hide();$("setupT").classList.remove("hide");$("names").innerHTML=[0,1,2,3,4,5].map(i=>`<input id="n${i}" placeholder="第${i+1}組名稱">`).join("")};
+window.studentSetup=async()=>{try{await ensureStudentAuth()}catch(error){showAuthError(error);return;}hide();$("setupS").classList.remove("hide");$("myTeam").innerHTML=[0,1,2,3,4,5].map(i=>`<option value="${i}">第${i+1}組</option>`).join("")};
+function blank(){let t={};for(let i=0;i<6;i++)t[i]={name:`第${i+1}組`,fish:0,capacity:10,attempts:0,tech:0,expert:0,expertUses:0,expertReport:null,ship:0,connected:false,carry:0,roundFish:0,lastRoundFish:0};return{code:room,phase:"setup",round:0,turn:0,paused:true,prob:JSON.parse(JSON.stringify(defaultProb)),teams:t,last:null}}
+function listen(){onValue(ref(db,"rooms/"+room),v=>{if(v.exists()){s=v.val();render()}},error=>{console.error(error);alert("資料庫讀取失敗："+error.message)})}
+window.createRoom=async()=>{if(!isGoogleTeacher())return alert("請先以 Google 帳號登入教師版");room=Math.random().toString(36).slice(2,6).toUpperCase();let x=blank();for(let i=0;i<6;i++)x.teams[i].name=$("n"+i).value.trim()||`第${i+1}組`;await set(ref(db,"rooms/"+room),x);role="teacher";hide();$("teacher").classList.remove("hide");listen()};
+window.joinRoom=async()=>{room=$("code").value.trim().toUpperCase();let v=await get(ref(db,"rooms/"+room));if(!v.exists())return alert("找不到課堂");me=+$("myTeam").value;await update(ref(db,`rooms/${room}/teams/${me}`),{connected:true});role="student";hide();$("student").classList.remove("hide");listen()};
+const reset=()=>{let t={};Object.keys(s.teams).forEach(i=>t[i]={...s.teams[i],attempts:0,carry:0,roundFish:0,lastRoundFish:0});return t};
+async function log(x){await push(ref(db,`rooms/${room}/log`),{text:x,time:serverTimestamp()})}
+window.startGame=async()=>{await update(ref(db,"rooms/"+room),{phase:"p1",round:1,turn:0,paused:false,teams:reset()});await log("🎬 第一階段開始")};
+window.setPause=async x=>update(ref(db,"rooms/"+room),{paused:x});
+window.nextStep=async()=>{if(s.phase==="p1")return alert("第一階段會在六組完成第三回合後，自動進入技能訓練");if(s.phase==="p1"&&s.round===3){await update(ref(db,"rooms/"+room),{phase:"training",paused:true});await log("🎓 技能訓練")}else if(s.phase==="training"){await update(ref(db,"rooms/"+room),{phase:"p2",round:1,turn:0,paused:false,teams:reset()})}else if(s.phase==="p2"&&(s.round===3||s.round===6)){await update(ref(db,"rooms/"+room),{phase:"upgrade",paused:true})}else if(s.phase==="upgrade"){await update(ref(db,"rooms/"+room),{phase:"p2",round:+s.round+1,turn:0,paused:false,teams:reset()})}else if(s.phase==="p2"&&s.round<9){await update(ref(db,"rooms/"+room),{round:+s.round+1,turn:0,paused:false,teams:reset()})}else if(s.phase==="p2"){await update(ref(db,"rooms/"+room),{phase:"end",paused:true})}};
+function pick(a){let total=a.reduce((x,y)=>x+(Number(y)||0),0);let r=Math.random()*total,z=0;for(let i=0;i<a.length;i++){z+=Number(a[i])||0;if(r<z)return i}return a.length-1}
+// 使用交易一次更新魚量、組別與回合，避免多人同步時覆蓋狀態。
+async function takeTurn(action){
+ const sea=action==="fish"?$("sea").value:null;
+ let outcome=null;
+ const result=await runTransaction(ref(db,"rooms/"+room),state=>{
+  if(!state||state.paused||!["p1","p2"].includes(state.phase)||Number(state.turn)!==me)return;
+  const t=state.teams[me];if(!t)return;
+  const max=3+(Number(t.tech)||0);
+  if(action==="fish"&&Number(t.attempts)>=max)return;
+  const previous=Number(t.carry)||0;
+  let n=0,pirate=false,done=action==="skip";
+  if(action==="fish"){
+   const ph=state.phase;const arr=(state.prob||defaultProb)[ph][sea].slice(0,ph==="p1"?6:7);
+   n=pick(arr);t.attempts=(Number(t.attempts)||0)+1;
+   t.carry=previous+n;t.roundFish=(Number(t.roundFish)||0)+n;
+   pirate=ph==="p2"&&t.carry>Number(t.capacity);
+   done=pirate||t.attempts>=max;
+  }
+  if(done){
+   const earned=pirate?0:Number(t.carry)||0;
+   t.fish=(Number(t.fish)||0)+earned;
+   t.lastRoundFish=earned;t.carry=0;t.attempts=0;
+   const next=Number(state.turn)+1;
+   if(next>=6){
+    state.turn=0;
+    const maxRounds=state.phase==="p1"?3:9;
+    if(Number(state.round)<maxRounds){
+     if(state.phase==="p2"&&[3,6].includes(Number(state.round))){state.phase="upgrade";state.paused=true;}
+     else state.round=Number(state.round)+1;
+    }else{state.phase=state.phase==="p1"?"training":"end";state.paused=true;}
+    for(const team of Object.values(state.teams)){
+     team.attempts=0;team.carry=0;team.roundFish=0;
+    }
+   }else state.turn=next;
+  }
+  state.last=action==="skip"?{type:"skip",team:t.name,n:Number(t.lastRoundFish)||0}:pirate?{type:"pirate",team:t.name}: {type:"fish",team:t.name,n,icon:icons[n],sea:seas[sea][0],attempt:done?max:t.attempts,max};
+  outcome={action,team:t.name,n,pirate,done,round:state.round,phase:state.phase};
+  return state;
+ },{applyLocally:false});
+ if(!result.committed){alert("操作未成功：請確認目前輪到你的組，或重新整理畫面。");return;}
+ if(outcome){const o=outcome;await log(o.action==="skip"?`⏭️ ${o.team} 跳過回合`:o.pirate?`🏴‍☠️ ${o.team} 遭海盜掠奪`: `🎣 ${o.team} 抽到 ${o.n} 條魚`);}
+}
+window.catchFish=async()=>{if(!s||s.paused||!["p1","p2"].includes(s.phase))return alert("目前不是捕魚時間");if(Number(s.turn)!==me)return alert("尚未輪到你的組");await takeTurn("fish")};
+window.skipTurn=async()=>{if(!s||s.paused||!["p1","p2"].includes(s.phase))return alert("目前不是捕魚時間");if(Number(s.turn)!==me)return alert("尚未輪到你的組");if(!confirm("確定跳過本回合？已捕獲的魚會安全帶回。"))return;await takeTurn("skip")};
+window.buySkill=async(i,k)=>{if(role==="student"&&i!==me)return;let c={expert:5,tech:8,ship:10}[k],t={...s.teams[i]};if(!["training","upgrade"].includes(s.phase)||t.fish<c)return alert("目前不能購買或魚不夠");t.fish-=c;if(k==="expert"){t.expert++;t.expertUses=(+t.expertUses||0)+1}if(k==="tech")t.tech++;if(k==="ship"){t.ship++;t.capacity++}await update(ref(db,`rooms/${room}/teams/${i}`),t);await log(`🎓 ${t.name} 技能升級`)};
+window.revealExpert=async()=>{if(role!=="student"||me<0)return;let t={...s.teams[me]};if((+t.expertUses||0)<1)return alert("請先購買海洋生態專家能力（5條魚）");let sea=$("expertSea").value,ph=s.phase==="p2"?"p2":"p1",p=(getProb()[ph]||{})[sea]||[];let report={sea,seaName:seas[sea][0],phaseName:ph==="p1"?"第一階段":"第二階段",probabilities:p.slice(0,ph==="p1"?6:7),round:+s.round||1,createdAt:Date.now()};t.expertUses-=1;t.expertReport=report;await update(ref(db,`rooms/${room}/teams/${me}`),t);await log(`🔎 ${t.name} 使用海洋生態專家情報：${report.phaseName}｜${report.seaName}`)};
+function phase(){return s.phase==="p1"?`第一階段｜第${s.round}/3回合`:s.phase==="p2"?`第二階段｜第${s.round}/9回合`:s.phase==="training"?"🎓 第一階段技能訓練":s.phase==="upgrade"?`⬆️ 第${s.round}回合技能升級`:s.phase==="end"?"🏆 遊戲結束":"準備開始"}
+function event(e){if(!e)return"🃏 等待抽牌";if(e.type==="skip")return`<div><div class=big>⏭️</div><b>${e.team} 跳過本回合</b><p>安全帶回 ${e.n||0} 條魚</p></div>`;if(e.type==="pirate")return`<div><div class=big>🏴‍☠️🏴‍☠️🏴‍☠️</div><b>海盜掠奪！</b><p>${e.team}<br>本回合帶回 0 條魚</p></div>`;return`<div><div class=big>${e.icon}</div><b>抽到 ${e.n} 條魚！</b><p>${e.team}｜🌊${e.sea}<br>第${e.attempt}/${e.max}次</p></div>`}
+window.saveProb=async()=>{
+ let np={p1:{},p2:{}};
+ for(const ph of ["p1","p2"]){
+  for(const k of Object.keys(seas)){
+   np[ph][k]=[];
+   const max=ph==="p1"?6:7;
+   for(let i=0;i<7;i++){const el=$(`prob-${ph}-${k}-${i}`);np[ph][k][i]=i<max?Math.max(0,Math.min(100,Number(el&&el.value)||0)):0;}
+   const sum=np[ph][k].reduce((a,b)=>a+b,0);
+   if(sum!==100){alert(`${ph==="p1"?"第一階段":"第二階段"}｜${seas[k][0]} 合計為 ${sum}%，必須等於100%。`);return;}
+  }
+ }
+ await update(ref(db,"rooms/"+room),{prob:np});
+ await log("⚙️ 教師已更新三海域魚牌機率");
+ renderProbPanel();
+};
+window.resetProb=()=>{renderProbPanel(defaultProb);};
+function renderProbPanel(temp){
+ if(role!=="teacher")return;
+ const p=temp||getProb();
+ let out='<h2>⚙️ 海域機率設定</h2><p>老師可自行調整三個海域的魚牌機率；每個海域合計必須為100%。</p>';
+ for(const ph of ["p1","p2"]){
+  out+=`<h3>${ph==="p1"?"第一階段｜0～5條魚":"第二階段｜0～6條魚"}</h3><div class="probgrid">`;
+  for(const k of Object.keys(seas)){
+   out+=`<div class="probbox"><b>🌊 ${seas[k][0]}</b>`;
+   for(let i=0;i<7;i++){const disabled=ph==="p1"&&i===6?"disabled":"";out+=`<label>${icons[i]} ${i}條 <input type="number" min="0" max="100" value="${p[ph][k][i]||0}" id="prob-${ph}-${k}-${i}" ${disabled}>%</label>`;}
+   out+=`<div class="probSum" id="sum-${ph}-${k}">合計：${(p[ph][k]||[]).reduce((a,b)=>a+(Number(b)||0),0)}%</div></div>`;
+  }
+  out+='</div>';
+ }
+ out+='<div class="row"><button class="go" onclick="saveProb()">💾 儲存機率設定</button><button onclick="resetProb()">↩️ 還原預設值</button></div><p>儲存後會寫入 Firebase，所有學生即時使用新機率。</p>';
+ $("probSettings").innerHTML=out;
+}
+async function render(){if(role==="teacher"){$("roomCode").textContent=s.code;$("phase").textContent=phase();$("event").innerHTML=event(s.last);$("teams").innerHTML=Object.keys(s.teams).map(i=>{let t=s.teams[i];return`<div class="team ${+i===+s.turn&&["p1","p2"].includes(s.phase)?"active":""}"><b>${t.name}</b> ${t.connected?"🟢":"⚪"}<div class=score>${t.fish}🐟</div>第${s.round}回合｜已抽${t.attempts}/${3+t.tech}次<br>🐟本回合捕獲${t.roundFish||0}條｜船上${t.carry||0}條<br>🚢承載${t.capacity}<br>🌊專家${t.expert}（情報剩${t.expertUses||0}）｜🎣${t.tech}｜🚢${t.ship}</div>`}).join("");renderProbPanel();let l=await get(ref(db,`rooms/${room}/log`));$("logs").innerHTML=l.exists()?Object.values(l.val()).map(x=>`<div>• ${x.text}</div>`).join(""):"尚無紀錄";let sk=$("skills");if(["training","upgrade"].includes(s.phase)){sk.classList.remove("hide");sk.innerHTML="<h2>🎓 技能</h2>"+Object.keys(s.teams).map(i=>`<p><b>${s.teams[i].name}</b>｜${s.teams[i].fish}🐟 <button onclick="buySkill(${i},'expert')">🌊5</button><button onclick="buySkill(${i},'tech')">🎣8</button><button onclick="buySkill(${i},'ship')">🚢10</button></p>`).join("")}else sk.classList.add("hide");if(s.phase==="end"){$("final").classList.remove("hide");$("final").innerHTML="<h2>🏆 最終排名</h2>"+Object.values(s.teams).sort((a,b)=>b.fish-a.fish).map((t,i)=>`<div class=rank>${i+1}. ${t.name}　${t.fish}🐟</div>`).join("")}}else{let t=s.teams[me];$("studentName").textContent=t.name;$("studentInfo").innerHTML=`${phase()}<br>目前狀態：${+s.turn===me&&["p1","p2"].includes(s.phase)?"🟢 現在輪到你":"⏳ 等待其他組"}<br>本回合已抽：${t.attempts||0}/${3+(+t.tech||0)} 次｜🐟本回合捕獲：${t.roundFish||0} 條｜🚢船上暫存：${t.carry||0} 條<br>累積魚量：${t.fish||0} 🐟｜🚢承載上限：${t.capacity||10}<br>🌊海洋生態專家：${t.expert||0} 張｜可查看情報：${t.expertUses||0} 次`;if(["p1","p2"].includes(s.phase))$("controls").innerHTML=`<select id=sea><option value=pacific>🌊太平洋</option><option value=atlantic>🌊大西洋</option><option value=indian>🌊印度洋</option></select> <button class=go onclick="catchFish()">🎣 抽魚牌</button> <button class=gold onclick="skipTurn()">⏭️ 不抽牌，跳過本回合</button>`;else if(["training","upgrade"].includes(s.phase))$("controls").innerHTML=`<button onclick="buySkill(${me},'expert')">🌊海洋生態專家5🐟</button><button onclick="buySkill(${me},'tech')">🎣捕魚技術指導8🐟</button><button onclick="buySkill(${me},'ship')">🚢增建船舶工程10🐟</button>`;else $("controls").innerHTML="等待教師操作";let info="";if((+t.expertUses||0)>0&&["training","upgrade","p1","p2"].includes(s.phase)){info=`<div style="margin-top:12px;padding:12px;border:1px solid #52718a;border-radius:10px"><b>🔎 海洋生態專家情報（剩${t.expertUses}次）</b><br><select id=expertSea><option value=pacific>太平洋</option><option value=atlantic>大西洋</option><option value=indian>印度洋</option></select> <button onclick="revealExpert()">查看此海域機率</button></div>`}if(t.expertReport){let rp=t.expertReport;info+=`<div style="margin-top:12px;padding:12px;border:1px solid #16b98c;border-radius:10px"><b>📊 你的專屬情報：${rp.seaName}｜${rp.phaseName}</b><br>${rp.probabilities.map((v,i)=>`${i}條魚：${v||0}%`).join("　｜　")}</div>`}$("controls").innerHTML+='<div>'+info+'</div>';$("myEvent").innerHTML=s.last&&s.last.team===t.name?event(s.last):"🃏 等待你的抽牌結果"}}
+window.copyCode=()=>{navigator.clipboard?.writeText(s.code);alert(s.code)};window.copyLink=()=>{navigator.clipboard?.writeText(location.href.split("#")[0]+"#join="+s.code);alert("學生網址已複製")};
+</script></body></html>
