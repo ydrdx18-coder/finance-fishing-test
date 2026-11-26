@@ -68,8 +68,8 @@ window.joinRoom=async()=>{
   if(!v.exists())return alert("找不到課堂，請確認代碼及測試版網址");
   me=Number($("myTeam").value);
   if(!Number.isInteger(me)||me<0||me>5)throw new Error("組別不正確");
-  stage="認領組別 rooms/"+room+"/teams/"+me;
-  await update(ref(db,`rooms/${room}/teams/${me}`),{connected:true});
+ stage="認領組別 members/"+room+"/"+me;
+await set(ref(db,`members/${room}/${me}`),user.uid);
   role="student";hide();$("student").classList.remove("hide");listen();
  }catch(error){
   console.error("加入課堂失敗",{stage,uid:auth.currentUser?.uid,anonymous:auth.currentUser?.isAnonymous,error});
